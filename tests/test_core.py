@@ -29,6 +29,20 @@ def test_plan_summary_excludes_annulled():
     assert plan.exclude_annulled is True
 
 
+def test_overview_range_and_bilingual_mode():
+    plan = parse_plan("2022 yildan 2026 yilgacha barcha statistikani o‘zbek va rus tillarida ber", date(2022, 1, 3), date(2026, 10, 30))
+    assert plan.intent == Intent.OVERVIEW
+    assert plan.period_start == "2022-01-01"
+    assert plan.period_end == "2026-12-31"
+    assert plan.bilingual is True
+
+
+def test_russian_full_statistics_is_overview():
+    plan = parse_plan("Дайте полную статистику с 2022 по 2026 год", date(2022, 1, 3), date(2026, 10, 30))
+    assert plan.intent == Intent.OVERVIEW
+    assert plan.language == Language.RU
+
+
 def test_validator_rejects_unknown_number():
     validator = AnswerValidator()
     assert validator.validate("Jami 1 234 so‘m.", {"numeric_values": [1234]})

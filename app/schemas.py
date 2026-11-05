@@ -11,6 +11,7 @@ class Language(StrEnum):
 
 
 class Intent(StrEnum):
+    OVERVIEW = "overview"
     SUMMARY = "summary"
     COUNT = "count"
     VOLUME = "volume"
@@ -34,6 +35,7 @@ class QueryPlan:
     period_end: str | None = None
     period_label: str = "barcha mavjud ma’lumotlar"
     period_error: bool = False
+    bilingual: bool = False
     metric: str = "amount_uzs"
     group_by: str | None = None
     limit: int = 10

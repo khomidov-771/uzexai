@@ -52,6 +52,10 @@ def parse_period(question: str, anchor: date, min_date: date, max_date: date) ->
             return None, None, "sana formati noto‘g‘ri"
         return _period(target, target, f"{target:%d.%m.%Y}")
     year_match = re.search(r"\b(20\d{2})\b", text)
+    years = [int(value) for value in re.findall(r"\b(20\d{2})\b", text)]
+    if len(years) >= 2 and years[0] != years[1]:
+        first, last = sorted(set(years))[:2]
+        return _period(date(first, 1, 1), date(last, 12, 31), f"{first}–{last}-yillar")
     year = int(year_match.group(1)) if year_match else anchor.year
     quarter_match = re.search(r"(?:\b([1-4])\s*(?:-?chorak|квартал)|(?:chorak|квартал)\s*([1-4]))", text)
     if quarter_match:
@@ -90,6 +94,7 @@ def _has(text: str, *phrases: str) -> bool:
 def parse_plan(question: str, min_date: date, max_date: date) -> QueryPlan:
     lang = detect_language(question)
     text = question.lower()
+    years = [int(value) for value in re.findall(r"\b(20\d{2})\b", text)]
     start, end, period_label = parse_period(question, max_date, min_date, max_date)
     plan = QueryPlan(
         language=lang,
@@ -98,6 +103,7 @@ def parse_plan(question: str, min_date: date, max_date: date) -> QueryPlan:
         period_end=end,
         period_label=period_label,
         period_error=period_label == "sana formati noto‘g‘ri",
+        bilingual=_has(text, "uzbek va rus", "o‘zbek va rus", "o'zbek va rus", "uzbekcha va ruscha", "на узбекском и русском", "на русском и узбекском", "ikki tilda", "двух языках"),
     )
 
     inn_match = re.search(r"(?<!\d)(\d{9})(?!\d)", question)
@@ -124,6 +130,12 @@ def parse_plan(question: str, min_date: date, max_date: date) -> QueryPlan:
         plan.statuses = ["Заключен", "Ждёт оплату", "Оплачен", "Исполнен", "Исполнен(Частично)", "Аннулирован(Не оплачен)"]
         plan.explicit_status_filter = True
 
+    overview_markers = ("barcha statistika", "barcha statistik", "to‘liq statistika", "to'liq statistika", "umumiy statistika", "all statistics", "full statistics", "вся статистика", "всю статистику", "общая статистика", "полная статистика", "полную статистику")
+    multi_stat_tokens = ("statistika", "статистик", "status", "статус", "eksport", "экспорт", "hajm", "объем", "volume", "top")
+    if _has(text, *overview_markers) or (len(set(token for token in multi_stat_tokens if token in text)) >= 3 and len(years) >= 2):
+        plan.intent = Intent.OVERVIEW
+        plan.exclude_annulled = True
+        return plan
     if _has(text, "kurs", "курс", "usd", "доллар", "dollar") and not _has(text, "summasi", "сумма", "hajm", "объем"):
         plan.intent = Intent.EXCHANGE_RATE
         return plan

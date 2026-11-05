@@ -19,7 +19,7 @@ flowchart LR
   O -. faqat ruxsat etilgan intent .-> S
 ```
 
-LLM statistikani hisoblamaydi, xom qatorlarni qabul qilmaydi va javobdagi raqamlarni yozmaydi. Asosiy rejim LLMsiz ishlaydi.
+LLM statistikani hisoblamaydi, xom qatorlarni qabul qilmaydi va javobdagi raqamlarni yozmaydi. Asosiy rejim LLMsiz ishlaydi. Murakkab “barcha statistika” savoli overview query sifatida yil/status/top bloklariga ajratiladi; foydalanuvchi ikki tilni so‘rasa javob ikki tilda qaytariladi.
 
 ## 3. Javoblarni tekshirish
 

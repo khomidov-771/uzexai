@@ -38,6 +38,7 @@ uvicorn app.api:create_app --factory --host 127.0.0.1 --port 8000
 ## Qo‘llab-quvvatlanadigan savollar
 
 - davr bo‘yicha jami summa, bitimlar soni, hajm;
+- 2022–2026 kabi katta davr uchun to‘liq overview: yillar, statuslar, eksport, top-5 tovar va region;
 - top mahsulot, kompaniya, region, broker va status;
 - o‘rtacha/min/max narx;
 - kompaniya profili, INN bo‘yicha qidiruv;

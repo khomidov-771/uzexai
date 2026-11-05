@@ -189,6 +189,8 @@ class EvidenceAgent:
         return None
 
     def _execute(self, plan: QueryPlan, question: str) -> AgentResponse:
+        if plan.intent == Intent.OVERVIEW:
+            return self._overview_response(plan)
         if plan.intent == Intent.EXCHANGE_RATE:
             return self._exchange_rate(plan)
         clauses, params = self._where(plan)
@@ -230,6 +232,96 @@ class EvidenceAgent:
         if plan.intent == Intent.COMPARE:
             return self._compare_response(plan, question)
         return self._simple_response(self._unknown_answer(plan), plan)
+
+    def _overview_response(self, plan: QueryPlan) -> AgentResponse:
+        date_clauses = ["1=1"]
+        date_params: list[Any] = []
+        if plan.period_start and plan.period_end:
+            date_clauses.append("deal_date BETWEEN ? AND ?")
+            date_params.extend([plan.period_start, plan.period_end])
+        date_sql = " AND ".join(date_clauses)
+        active_sql = f"{date_sql} AND status != ?"
+        active_params = [*date_params, ANNULLED]
+        overall = self.db.one(
+            f"SELECT COUNT(*) AS deal_count, COALESCE(SUM(amount_uzs), 0) AS amount_uzs, COALESCE(SUM(volume), 0) AS volume FROM deals_enriched WHERE {date_sql}",
+            date_params,
+        ) or {}
+        active = self.db.one(
+            f"SELECT COUNT(*) AS deal_count, COALESCE(SUM(amount_uzs), 0) AS amount_uzs, COALESCE(SUM(volume), 0) AS volume FROM deals_enriched WHERE {active_sql}",
+            active_params,
+        ) or {}
+        annulled = self.db.one(
+            f"SELECT COUNT(*) AS deal_count, COALESCE(SUM(amount_uzs), 0) AS amount_uzs FROM deals_enriched WHERE {date_sql} AND status = ?",
+            [*date_params, ANNULLED],
+        ) or {}
+        annual = self.db.query(
+            f"SELECT EXTRACT(year FROM deal_date)::INTEGER AS year, COUNT(*) AS deal_count, COALESCE(SUM(amount_uzs), 0) AS amount_uzs, COALESCE(SUM(volume), 0) AS volume FROM deals_enriched WHERE {active_sql} GROUP BY 1 ORDER BY 1",
+            active_params,
+        )
+        statuses = self.db.query(
+            f"SELECT status, COUNT(*) AS deal_count FROM deals_enriched WHERE {date_sql} GROUP BY status ORDER BY deal_count DESC",
+            date_params,
+        )
+        top_products = self.db.query(
+            f"SELECT COALESCE(contract_product, product) AS label, COUNT(*) AS deal_count, COALESCE(SUM(amount_uzs), 0) AS amount_uzs FROM deals_enriched WHERE {active_sql} GROUP BY 1 ORDER BY amount_uzs DESC NULLS LAST LIMIT 5",
+            active_params,
+        )
+        top_regions = self.db.query(
+            f"SELECT region AS label, COUNT(*) AS deal_count, COALESCE(SUM(amount_uzs), 0) AS amount_uzs FROM deals_enriched WHERE {active_sql} GROUP BY 1 ORDER BY amount_uzs DESC NULLS LAST LIMIT 5",
+            active_params,
+        )
+        export = self.db.one(
+            f"SELECT COUNT(*) AS deal_count, COALESCE(SUM(amount), 0) AS amount_raw, COALESCE(SUM(amount_uzs), 0) AS amount_uzs FROM deals_enriched WHERE {active_sql} AND contract_type = ?",
+            [*active_params, "Экспортный"],
+        ) or {}
+        all_rows = [overall, active, annulled, export, *annual, *statuses, *top_products, *top_regions]
+        numeric_values = [value for row in all_rows for value in row.values() if isinstance(value, (int, float))]
+        numeric_values.extend(range(1, 6))
+        entities = [row.get("status") or row.get("label") for row in [*statuses, *top_products, *top_regions]]
+        facts = self._facts(numeric_values, entities)
+        uz = self._overview_language_block(plan, overall, active, annulled, annual, statuses, top_products, top_regions, export, "uz")
+        ru = self._overview_language_block(plan, overall, active, annulled, annual, statuses, top_products, top_regions, export, "ru")
+        answer = f"{uz}\n\n---\n\n{ru}" if plan.bilingual else (uz if plan.language == Language.UZ else ru)
+        sql = "DuckDB overview: date range + aggregate/year/status/top queries"
+        return self._validated(answer, Intent.OVERVIEW, plan, facts, overall, sql, date_params)
+
+    def _overview_language_block(self, plan: QueryPlan, overall: dict[str, Any], active: dict[str, Any], annulled: dict[str, Any], annual: list[dict[str, Any]], statuses: list[dict[str, Any]], top_products: list[dict[str, Any]], top_regions: list[dict[str, Any]], export: dict[str, Any], language: str) -> str:
+        money = "сум" if language == "ru" else "so‘m"
+        if language == "ru":
+            lines = [
+                f"📊 Общая статистика за {plan.period_label}",
+                f"• Все сделки: {format_number(overall.get('deal_count', 0), 0)}; сумма: {format_number(overall.get('amount_uzs', 0))} {money}; объём: {format_number(overall.get('volume', 0))} единиц.",
+                f"• Без аннулированных: {format_number(active.get('deal_count', 0), 0)}; сумма: {format_number(active.get('amount_uzs', 0))} {money}; объём: {format_number(active.get('volume', 0))}.",
+                f"• Аннулированные: {format_number(annulled.get('deal_count', 0), 0)}; сумма: {format_number(annulled.get('amount_uzs', 0))} {money}.",
+                f"• Экспорт без аннулированных: {format_number(export.get('deal_count', 0), 0)} сделок; {format_number(export.get('amount_raw', 0))} USD; {format_number(export.get('amount_uzs', 0))} {money}.",
+                "Годы (без аннулированных):",
+            ]
+            lines.extend(f"  {int(row['year'])}: {format_number(row.get('deal_count', 0), 0)} сделок; {format_number(row.get('amount_uzs', 0))} {money}; объём {format_number(row.get('volume', 0))}." for row in annual)
+            lines.append("Статусы:")
+            lines.extend(f"  {row.get('status') or '—'}: {format_number(row.get('deal_count', 0), 0)}" for row in statuses)
+            lines.append("Топ-5 товаров по сумме (без аннулированных):")
+            lines.extend(f"  {index}) {row.get('label') or '—'} — {format_number(row.get('amount_uzs', 0))} {money}; {format_number(row.get('deal_count', 0), 0)}" for index, row in enumerate(top_products, 1))
+            lines.append("Топ-5 регионов по сумме (без аннулированных):")
+            lines.extend(f"  {index}) {row.get('label') or '—'} — {format_number(row.get('amount_uzs', 0))} {money}; {format_number(row.get('deal_count', 0), 0)}" for index, row in enumerate(top_regions, 1))
+            lines.append(f"Источник: {plan.period_label}; суммы в UZS; экспорт UZS-эквивалентом по курсу каждой даты; статусы: все.")
+            return "\n".join(lines)
+        lines = [
+            f"📊 {plan.period_label} uchun umumiy statistika",
+            f"• Barcha bitimlar: {format_number(overall.get('deal_count', 0), 0)} ta; summa: {format_number(overall.get('amount_uzs', 0))} {money}; hajm: {format_number(overall.get('volume', 0))} birlik.",
+            f"• Annul qilinmagan: {format_number(active.get('deal_count', 0), 0)} ta; summa: {format_number(active.get('amount_uzs', 0))} {money}; hajm: {format_number(active.get('volume', 0))}.",
+            f"• Annul qilingan: {format_number(annulled.get('deal_count', 0), 0)} ta; summa: {format_number(annulled.get('amount_uzs', 0))} {money}.",
+            f"• Annul qilinmagan eksport: {format_number(export.get('deal_count', 0), 0)} ta; {format_number(export.get('amount_raw', 0))} USD; {format_number(export.get('amount_uzs', 0))} {money}.",
+            "Yillar kesimida (annulsiz):",
+        ]
+        lines.extend(f"  {int(row['year'])}: {format_number(row.get('deal_count', 0), 0)} ta; {format_number(row.get('amount_uzs', 0))} {money}; hajm {format_number(row.get('volume', 0))}." for row in annual)
+        lines.append("Holatlar:")
+        lines.extend(f"  {row.get('status') or '—'}: {format_number(row.get('deal_count', 0), 0)} ta" for row in statuses)
+        lines.append("Summa bo‘yicha top-5 tovar (annulsiz):")
+        lines.extend(f"  {index}) {row.get('label') or '—'} — {format_number(row.get('amount_uzs', 0))} {money}; {format_number(row.get('deal_count', 0), 0)} ta" for index, row in enumerate(top_products, 1))
+        lines.append("Summa bo‘yicha top-5 region (annulsiz):")
+        lines.extend(f"  {index}) {row.get('label') or '—'} — {format_number(row.get('amount_uzs', 0))} {money}; {format_number(row.get('deal_count', 0), 0)} ta" for index, row in enumerate(top_regions, 1))
+        lines.append(f"Manba: {plan.period_label}; summalar UZSda; eksport UZS ekvivalenti har bir sana kursida; holatlar: barcha.")
+        return "\n".join(lines)
 
     def _where(self, plan: QueryPlan) -> tuple[list[str], list[Any]]:
         clauses = ["1=1"]
