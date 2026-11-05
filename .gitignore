@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+*.duckdb
+*.duckdb.wal
+*.egg-info/
+uzex_spot_data/*.csv
+logs/
+exports/
+

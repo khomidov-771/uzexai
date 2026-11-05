@@ -1,0 +1,11 @@
+services:
+  uzex-agent:
+    build: .
+    restart: always
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uzex_spot_data:/app/uzex_spot_data:ro
+      - ./uzex.duckdb:/app/uzex.duckdb
+
