@@ -25,6 +25,9 @@ QUESTIONS = [
     "Курс доллара на 30.10.2026",
     "Распределение статусов за 2026 год",
     "Сравни 2024 и 2025",
+    "2022 yildan 2026 yilgacha barcha statistikani o‘zbek va rus tillarida ber",
+    "Дайте полную статистику с 2022 по 2026 год",
+    "2022–2026 yillar bo‘yicha top-10 region, status va eksport statistikasi",
 ]
 
 
