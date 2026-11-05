@@ -52,11 +52,18 @@ def parse_period(question: str, anchor: date, min_date: date, max_date: date) ->
             return None, None, "sana formati noto‘g‘ri"
         return _period(target, target, f"{target:%d.%m.%Y}")
     year_match = re.search(r"\b(20\d{2})\b", text)
+    short_year_match = re.search(r"(?<!\d)(\d{1,3})\s*[- ]?yil", text)
     years = [int(value) for value in re.findall(r"\b(20\d{2})\b", text)]
     if len(years) >= 2 and years[0] != years[1]:
         first, last = sorted(set(years))[:2]
         return _period(date(first, 1, 1), date(last, 12, 31), f"{first}–{last}-yillar")
-    year = int(year_match.group(1)) if year_match else anchor.year
+    if year_match:
+        year = int(year_match.group(1))
+    elif short_year_match:
+        # Common Telegram typo: `025-yilda` means 2025-yilda.
+        year = 2000 + int(short_year_match.group(1))
+    else:
+        year = anchor.year
     quarter_match = re.search(r"(?:\b([1-4])\s*(?:-?chorak|квартал)|(?:chorak|квартал)\s*([1-4]))", text)
     if quarter_match:
         quarter = int(quarter_match.group(1) or quarter_match.group(2))
@@ -82,7 +89,7 @@ def parse_period(question: str, anchor: date, min_date: date, max_date: date) ->
         return _period(date(anchor.year, 1, 1), anchor, f"{anchor.year}-yil")
     if re.search(r"(?:o['’`]?tgan|прошл(?:ый|ом))\s+(?:yil|год)", text):
         return _period(date(anchor.year - 1, 1, 1), date(anchor.year - 1, 12, 31), f"{anchor.year - 1}-yil")
-    if year_match:
+    if year_match or short_year_match:
         return _period(date(year, 1, 1), date(year, 12, 31), f"{year}-yil")
     return None, None, f"{min_date:%d.%m.%Y} — {max_date:%d.%m.%Y} (barcha mavjud ma’lumotlar)"
 
@@ -130,7 +137,7 @@ def parse_plan(question: str, min_date: date, max_date: date) -> QueryPlan:
         plan.statuses = ["Заключен", "Ждёт оплату", "Оплачен", "Исполнен", "Исполнен(Частично)", "Аннулирован(Не оплачен)"]
         plan.explicit_status_filter = True
 
-    overview_markers = ("barcha statistika", "barcha statistik", "to‘liq statistika", "to'liq statistika", "umumiy statistika", "all statistics", "full statistics", "вся статистика", "всю статистику", "общая статистика", "полная статистика", "полную статистику")
+    overview_markers = ("statistika", "статистик", "statistics", "barcha statistika", "barcha statistik", "to‘liq statistika", "to'liq statistika", "umumiy statistika", "all statistics", "full statistics", "вся статистика", "всю статистику", "общая статистика", "полная статистика", "полную статистику")
     multi_stat_tokens = ("statistika", "статистик", "status", "статус", "eksport", "экспорт", "hajm", "объем", "volume", "top")
     if _has(text, *overview_markers) or (len(set(token for token in multi_stat_tokens if token in text)) >= 3 and len(years) >= 2):
         plan.intent = Intent.OVERVIEW
